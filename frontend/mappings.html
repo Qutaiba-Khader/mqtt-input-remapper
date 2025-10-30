@@ -1,42 +1,231 @@
 <!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Key Mappings</title><link rel="stylesheet" href="/static/css/style.css"></head>
-<body><header><div class="header-content"><div class="logo"><h1>📡 MQTT Input Remapper</h1></div></div></header>
-<nav><ul><li><a href="/">Dashboard</a></li><li><a href="/devices.html">Devices</a></li><li><a href="/mappings.html" class="active">Mappings</a></li><li><a href="/mqtt.html">MQTT</a></li><li><a href="/logs.html">Logs</a></li><li><a href="/settings.html">Settings</a></li></ul></nav>
-<div class="container"><div class="card"><h2>Select Device</h2><select id="deviceSelect" onchange="loadMappings(this.value)"><option>Select device...</option></select></div>
-<div class="card" id="mappingsCard" style="display:none"><h2>Key Mappings</h2><div id="mappingsList"></div><button class="btn btn-primary mt-2" onclick="saveMappings()">Save Mappings</button></div></div>
-<script src="/static/js/api.js"></script><script src="/static/js/app.js"></script>
-<script>
-let currentDevice = null;
-let mappingsData = {};
-async function loadDeviceList() {
-    const data = await API.getDevices();
-    const remapped = data.devices.filter(d => d.remapped);
-    document.getElementById('deviceSelect').innerHTML = '<option>Select device...</option>' + 
-        remapped.map(d => `<option value="${d.device_id}">${d.name}</option>`).join('');
-    const params = new URLSearchParams(window.location.search);
-    const deviceId = params.get('device');
-    if (deviceId) { document.getElementById('deviceSelect').value = deviceId; loadMappings(deviceId); }
-}
-async function loadMappings(deviceId) {
-    if (!deviceId || deviceId === 'Select device...') return;
-    currentDevice = deviceId;
-    const keys = await API.getDeviceKeys(deviceId);
-    const mappings = await API.getMappings(deviceId);
-    mappingsData = mappings.mappings || {};
-    const list = document.getElementById('mappingsList');
-    list.innerHTML = keys.keys.map(key => `
-        <div class="key-mapping"><div class="key-name">${key}</div>
-        <input type="text" class="key-input" data-key="${key}" value="${mappingsData[key] || ''}" placeholder="MQTT text to send">
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Key Mappings - MQTT Input Remapper</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .key-detect-mode {
+            background: #fef3c7;
+            border: 2px dashed #f59e0b;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .key-detect-mode.active {
+            background: #d1fae5;
+            border-color: #10b981;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .detected-key {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #059669;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <div class="logo"><h1>📡 MQTT Input Remapper</h1></div>
+            <div class="master-toggle">
+                <span>Master Enable:</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="masterToggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
         </div>
-    `).join('');
-    document.getElementById('mappingsCard').style.display = 'block';
-}
-async function saveMappings() {
-    const inputs = document.querySelectorAll('.key-input');
-    const newMappings = {};
-    inputs.forEach(input => { newMappings[input.dataset.key] = input.value; });
-    await API.updateMappings(currentDevice, newMappings);
-    showNotification('Mappings saved');
-}
-loadDeviceList();
-</script></body></html>
+    </header>
+    <nav>
+        <ul>
+            <li><a href="/">Dashboard</a></li>
+            <li><a href="/devices.html">Devices</a></li>
+            <li><a href="/mappings.html" class="active">Mappings</a></li>
+            <li><a href="/mqtt.html">MQTT Settings</a></li>
+            <li><a href="/logs.html">Logs</a></li>
+            <li><a href="/settings.html">Settings</a></li>
+        </ul>
+    </nav>
+    <div class="container">
+        <div class="card">
+            <h2>Select Device</h2>
+            <select id="deviceSelect" onchange="loadDevice(this.value)">
+                <option value="">Select device...</option>
+            </select>
+        </div>
+
+        <div class="card" id="keyDetectCard" style="display:none">
+            <h2>Key Detection Mode</h2>
+            <div class="key-detect-mode" id="detectArea">
+                <h3>🎹 Press keys on your device to detect them</h3>
+                <p>Press any key on your selected device. It will be automatically detected and added below.</p>
+                <div class="detected-key" id="lastKey"></div>
+            </div>
+            <p class="text-muted">Tip: Press each key you want to map. They will appear in the list below.</p>
+        </div>
+
+        <div class="card" id="mappingsCard" style="display:none">
+            <h2>Key Mappings</h2>
+            <p class="text-muted">Enter the MQTT message text for each key. Leave empty to ignore.</p>
+            <div id="mappingsList"></div>
+            <button class="btn btn-primary mt-2" onclick="saveMappings()">💾 Save All Mappings</button>
+            <button class="btn btn-secondary mt-2" onclick="clearAllMappings()">🗑️ Clear All</button>
+        </div>
+    </div>
+
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script>
+        let currentDevice = null;
+        let mappingsData = {};
+        let detectedKeys = new Set();
+        let detectInterval = null;
+
+        async function loadDeviceList() {
+            const data = await API.getDevices();
+            const remapped = data.devices.filter(d => d.remapped);
+            const select = document.getElementById('deviceSelect');
+            select.innerHTML = '<option value="">Select device...</option>' + 
+                remapped.map(d => `<option value="${d.device_id}">${d.name}</option>`).join('');
+            
+            const params = new URLSearchParams(window.location.search);
+            const deviceId = params.get('device');
+            if (deviceId) {
+                select.value = deviceId;
+                loadDevice(deviceId);
+            }
+        }
+
+        async function loadDevice(deviceId) {
+            if (!deviceId) {
+                document.getElementById('keyDetectCard').style.display = 'none';
+                document.getElementById('mappingsCard').style.display = 'none';
+                return;
+            }
+            
+            currentDevice = deviceId;
+            detectedKeys.clear();
+            
+            // Load existing mappings
+            const mappings = await API.getMappings(deviceId);
+            mappingsData = mappings.mappings || {};
+            
+            // Add existing mapped keys to detected keys
+            Object.keys(mappingsData).forEach(key => detectedKeys.add(key));
+            
+            // Show detection and mappings cards
+            document.getElementById('keyDetectCard').style.display = 'block';
+            document.getElementById('mappingsCard').style.display = 'block';
+            
+            // Start key detection
+            startKeyDetection();
+            
+            // Update mappings display
+            updateMappingsDisplay();
+        }
+
+        function startKeyDetection() {
+            const detectArea = document.getElementById('detectArea');
+            detectArea.classList.add('active');
+            
+            // Poll logs for key events every 500ms
+            if (detectInterval) clearInterval(detectInterval);
+            detectInterval = setInterval(async () => {
+                const logs = await API.getLogs(20);
+                
+                // Look for key events in logs
+                logs.logs.forEach(log => {
+                    const match = log.match(/Key event from.*?: (KEY_\w+)/);
+                    if (match) {
+                        const keyName = match[1];
+                        if (!detectedKeys.has(keyName)) {
+                            detectedKeys.add(keyName);
+                            document.getElementById('lastKey').textContent = `✅ Detected: ${keyName}`;
+                            updateMappingsDisplay();
+                        }
+                    }
+                });
+            }, 500);
+        }
+
+        function updateMappingsDisplay() {
+            const list = document.getElementById('mappingsList');
+            const keys = Array.from(detectedKeys).sort();
+            
+            if (keys.length === 0) {
+                list.innerHTML = '<p class="text-muted">No keys detected yet. Press keys on your device to detect them.</p>';
+                return;
+            }
+            
+            list.innerHTML = keys.map(key => `
+                <div class="key-mapping">
+                    <div class="key-name">${key}</div>
+                    <input type="text" class="key-input" data-key="${key}" 
+                           value="${mappingsData[key] || ''}" 
+                           placeholder="Enter MQTT text (e.g., 'Turn-on-lights')">
+                    <button class="btn btn-danger" onclick="removeKey('${key}')">❌</button>
+                </div>
+            `).join('');
+        }
+
+        function removeKey(keyName) {
+            detectedKeys.delete(keyName);
+            delete mappingsData[keyName];
+            updateMappingsDisplay();
+        }
+
+        async function saveMappings() {
+            const inputs = document.querySelectorAll('.key-input');
+            const newMappings = {};
+            
+            inputs.forEach(input => {
+                const key = input.dataset.key;
+                const value = input.value.trim();
+                if (value) {
+                    newMappings[key] = value;
+                }
+            });
+            
+            await API.updateMappings(currentDevice, newMappings);
+            mappingsData = newMappings;
+            showNotification('✅ Mappings saved successfully!');
+        }
+
+        function clearAllMappings() {
+            if (confirm('Clear all mappings for this device?')) {
+                detectedKeys.clear();
+                mappingsData = {};
+                updateMappingsDisplay();
+                saveMappings();
+            }
+        }
+
+        // Load master toggle state
+        API.getMasterStatus().then(data => {
+            document.getElementById('masterToggle').checked = data.enabled;
+        });
+
+        // Master toggle handler
+        document.getElementById('masterToggle').addEventListener('change', async (e) => {
+            await API.toggleMaster(e.target.checked);
+            showNotification('Master ' + (e.target.checked ? 'enabled' : 'disabled'));
+        });
+
+        // Initialize
+        loadDeviceList();
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (detectInterval) clearInterval(detectInterval);
+        });
+    </script>
+</body>
+</html>
