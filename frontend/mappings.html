@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Key Mappings</title><link rel="stylesheet" href="/static/css/style.css"></head>
+<body><header><div class="header-content"><div class="logo"><h1>📡 MQTT Input Remapper</h1></div></div></header>
+<nav><ul><li><a href="/">Dashboard</a></li><li><a href="/devices.html">Devices</a></li><li><a href="/mappings.html" class="active">Mappings</a></li><li><a href="/mqtt.html">MQTT</a></li><li><a href="/logs.html">Logs</a></li><li><a href="/settings.html">Settings</a></li></ul></nav>
+<div class="container"><div class="card"><h2>Select Device</h2><select id="deviceSelect" onchange="loadMappings(this.value)"><option>Select device...</option></select></div>
+<div class="card" id="mappingsCard" style="display:none"><h2>Key Mappings</h2><div id="mappingsList"></div><button class="btn btn-primary mt-2" onclick="saveMappings()">Save Mappings</button></div></div>
+<script src="/static/js/api.js"></script><script src="/static/js/app.js"></script>
+<script>
+let currentDevice = null;
+let mappingsData = {};
+async function loadDeviceList() {
+    const data = await API.getDevices();
+    const remapped = data.devices.filter(d => d.remapped);
+    document.getElementById('deviceSelect').innerHTML = '<option>Select device...</option>' + 
+        remapped.map(d => `<option value="${d.device_id}">${d.name}</option>`).join('');
+    const params = new URLSearchParams(window.location.search);
+    const deviceId = params.get('device');
+    if (deviceId) { document.getElementById('deviceSelect').value = deviceId; loadMappings(deviceId); }
+}
+async function loadMappings(deviceId) {
+    if (!deviceId || deviceId === 'Select device...') return;
+    currentDevice = deviceId;
+    const keys = await API.getDeviceKeys(deviceId);
+    const mappings = await API.getMappings(deviceId);
+    mappingsData = mappings.mappings || {};
+    const list = document.getElementById('mappingsList');
+    list.innerHTML = keys.keys.map(key => `
+        <div class="key-mapping"><div class="key-name">${key}</div>
+        <input type="text" class="key-input" data-key="${key}" value="${mappingsData[key] || ''}" placeholder="MQTT text to send">
+        </div>
+    `).join('');
+    document.getElementById('mappingsCard').style.display = 'block';
+}
+async function saveMappings() {
+    const inputs = document.querySelectorAll('.key-input');
+    const newMappings = {};
+    inputs.forEach(input => { newMappings[input.dataset.key] = input.value; });
+    await API.updateMappings(currentDevice, newMappings);
+    showNotification('Mappings saved');
+}
+loadDeviceList();
+</script></body></html>

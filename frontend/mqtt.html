@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>MQTT Settings</title><link rel="stylesheet" href="/static/css/style.css"></head>
+<body><header><div class="header-content"><div class="logo"><h1>📡 MQTT Input Remapper</h1></div></div></header>
+<nav><ul><li><a href="/">Dashboard</a></li><li><a href="/devices.html">Devices</a></li><li><a href="/mappings.html">Mappings</a></li><li><a href="/mqtt.html" class="active">MQTT</a></li><li><a href="/logs.html">Logs</a></li><li><a href="/settings.html">Settings</a></li></ul></nav>
+<div class="container"><div class="card"><h2>MQTT Configuration</h2><form id="mqttForm">
+<div class="form-group"><label>Broker Address</label><input type="text" id="broker" required></div>
+<div class="form-group"><label>Port</label><input type="number" id="port" required></div>
+<div class="form-group"><label>Username</label><input type="text" id="username"></div>
+<div class="form-group"><label>Password</label><input type="password" id="password"></div>
+<div class="form-group"><label>Topic</label><input type="text" id="topic" required></div>
+<button type="button" class="btn btn-secondary" onclick="testConnection()">Test Connection</button>
+<button type="submit" class="btn btn-primary">Save Settings</button>
+</form></div></div>
+<script src="/static/js/api.js"></script><script src="/static/js/app.js"></script>
+<script>
+async function loadConfig() {
+    const config = await API.getMQTTConfig();
+    document.getElementById('broker').value = config.broker;
+    document.getElementById('port').value = config.port;
+    document.getElementById('username').value = config.username;
+    document.getElementById('topic').value = config.topic;
+}
+document.getElementById('mqttForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const config = {
+        broker: document.getElementById('broker').value,
+        port: parseInt(document.getElementById('port').value),
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value,
+        topic: document.getElementById('topic').value
+    };
+    await API.updateMQTTConfig(config);
+    showNotification('MQTT settings saved');
+};
+async function testConnection() {
+    const result = await API.testMQTT();
+    showNotification(result.message, result.success ? 'success' : 'danger');
+}
+loadConfig();
+</script></body></html>

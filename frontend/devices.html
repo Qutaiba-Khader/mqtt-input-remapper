@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Devices - MQTT Input Remapper</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <div class="logo"><h1>📡 MQTT Input Remapper</h1></div>
+            <div class="master-toggle">
+                <span>Master Enable:</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="masterToggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+    </header>
+    <nav>
+        <ul>
+            <li><a href="/">Dashboard</a></li>
+            <li><a href="/devices.html" class="active">Devices</a></li>
+            <li><a href="/mappings.html">Mappings</a></li>
+            <li><a href="/mqtt.html">MQTT Settings</a></li>
+            <li><a href="/logs.html">Logs</a></li>
+            <li><a href="/settings.html">Settings</a></li>
+        </ul>
+    </nav>
+    <div class="container">
+        <div class="card">
+            <h2>USB Devices</h2>
+            <div id="usbDevices" class="device-list">Loading...</div>
+        </div>
+        <div class="card">
+            <h2>Bluetooth Devices</h2>
+            <button class="btn btn-primary" onclick="scanBluetooth()">Scan for Devices</button>
+            <div id="btDevices" class="device-list mt-2">Loading...</div>
+        </div>
+    </div>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script>
+        async function loadDevices() {
+            const data = await API.getDevices();
+            const usbDiv = document.getElementById('usbDevices');
+            const btDiv = document.getElementById('btDevices');
+            
+            const usbDevs = data.devices.filter(d => d.bustype === 'USB');
+            const btDevs = data.devices.filter(d => d.bustype === 'Bluetooth');
+            
+            usbDiv.innerHTML = usbDevs.map(d => `
+                <div class="device-item ${d.remapped ? 'active' : ''}">
+                    <div class="device-header">
+                        <div class="device-name">${d.name}</div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" ${d.enabled ? 'checked' : ''} onchange="toggleDevice('${d.device_id}', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="device-info">
+                        <p>Path: ${d.path} | Vendor: ${d.vendor}:${d.product}</p>
+                    </div>
+                    <div class="device-actions">
+                        ${!d.remapped ? `<button class="btn btn-primary" onclick="addDevice('${d.device_id}', true)">Add to Remapped</button>` : ''}
+                        ${d.remapped ? `<button class="btn btn-danger" onclick="removeDevice('${d.device_id}')">Remove</button>` : ''}
+                        ${d.remapped ? `<a href="/mappings.html?device=${d.device_id}" class="btn btn-secondary">Configure Keys</a>` : ''}
+                    </div>
+                </div>
+            `).join('') || '<p>No USB devices found</p>';
+            
+            btDiv.innerHTML = btDevs.map(d => `
+                <div class="device-item ${d.remapped ? 'active' : ''}">
+                    <div class="device-header">
+                        <div class="device-name">${d.name}</div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" ${d.enabled ? 'checked' : ''} onchange="toggleDevice('${d.device_id}', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="device-info">
+                        <p>Path: ${d.path} | Vendor: ${d.vendor}:${d.product}</p>
+                    </div>
+                    <div class="device-actions">
+                        ${!d.remapped ? `<button class="btn btn-primary" onclick="addDevice('${d.device_id}', true)">Add to Remapped</button>` : ''}
+                        ${d.remapped ? `<button class="btn btn-danger" onclick="removeDevice('${d.device_id}')">Remove</button>` : ''}
+                        ${d.remapped ? `<a href="/mappings.html?device=${d.device_id}" class="btn btn-secondary">Configure Keys</a>` : ''}
+                    </div>
+                </div>
+            `).join('') || '<p>No Bluetooth devices found</p>';
+        }
+        
+        async function addDevice(deviceId, enabled) {
+            await API.addDevice(deviceId, enabled);
+            showNotification('Device added to remapped collection');
+            loadDevices();
+        }
+        
+        async function removeDevice(deviceId) {
+            if (confirm('Remove this device from remapped collection?')) {
+                await API.removeDevice(deviceId);
+                showNotification('Device removed');
+                loadDevices();
+            }
+        }
+        
+        async function toggleDevice(deviceId, enabled) {
+            await API.toggleDevice(deviceId, enabled);
+            showNotification(`Device ${enabled ? 'enabled' : 'disabled'}`);
+        }
+        
+        async function scanBluetooth() {
+            showNotification('Scanning for Bluetooth devices...', 'info');
+            await API.scanBluetooth();
+            setTimeout(loadDevices, 11000);
+        }
+        
+        loadDevices();
+        setInterval(loadDevices, 10000);
+    </script>
+</body>
+</html>

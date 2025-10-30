@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Settings</title><link rel="stylesheet" href="/static/css/style.css"></head>
+<body><header><div class="header-content"><div class="logo"><h1>📡 MQTT Input Remapper</h1></div></div></header>
+<nav><ul><li><a href="/">Dashboard</a></li><li><a href="/devices.html">Devices</a></li><li><a href="/mappings.html">Mappings</a></li><li><a href="/mqtt.html">MQTT</a></li><li><a href="/logs.html">Logs</a></li><li><a href="/settings.html" class="active">Settings</a></li></ul></nav>
+<div class="container"><div class="card"><h2>Backup & Restore</h2>
+<button class="btn btn-primary" onclick="exportConfig()">Export Configuration</button>
+<div class="form-group mt-2"><label>Import Configuration</label>
+<input type="file" id="importFile" accept=".json">
+<button class="btn btn-secondary" onclick="importConfig()">Import</button></div></div>
+<div class="card"><h2>About</h2><p><strong>MQTT Input Remapper</strong> v1.0.0</p>
+<p>A headless service for remapping HID device inputs to MQTT messages.</p></div></div>
+<script src="/static/js/api.js"></script><script src="/static/js/app.js"></script>
+<script>
+async function exportConfig() {
+    const config = await API.exportConfig();
+    const blob = new Blob([JSON.stringify(config, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'mqtt-remapper-config.json';
+    a.click();
+}
+async function importConfig() {
+    const file = document.getElementById('importFile').files[0];
+    if (!file) return;
+    await API.importConfig(file);
+    showNotification('Configuration imported');
+}
+</script></body></html>

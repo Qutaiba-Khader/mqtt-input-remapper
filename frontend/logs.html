@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Logs</title><link rel="stylesheet" href="/static/css/style.css"></head>
+<body><header><div class="header-content"><div class="logo"><h1>📡 MQTT Input Remapper</h1></div></div></header>
+<nav><ul><li><a href="/">Dashboard</a></li><li><a href="/devices.html">Devices</a></li><li><a href="/mappings.html">Mappings</a></li><li><a href="/mqtt.html">MQTT</a></li><li><a href="/logs.html" class="active">Logs</a></li><li><a href="/settings.html">Settings</a></li></ul></nav>
+<div class="container"><div class="card"><h2>System Logs</h2>
+<button class="btn btn-secondary" onclick="loadLogs()">Refresh</button>
+<button class="btn btn-danger" onclick="clearLogs()">Clear</button>
+<div id="logs" class="log-container mt-2">Loading...</div></div></div>
+<script src="/static/js/api.js"></script><script src="/static/js/app.js"></script>
+<script>
+async function loadLogs() {
+    const data = await API.getLogs(200);
+    document.getElementById('logs').innerHTML = data.logs.slice(-100).reverse().join('<br>') || 'No logs';
+}
+async function clearLogs() {
+    await API.clearLogs();
+    showNotification('Logs cleared');
+    loadLogs();
+}
+loadLogs();
+setInterval(loadLogs, 5000);
+</script></body></html>

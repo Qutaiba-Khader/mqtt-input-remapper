@@ -1,0 +1,26 @@
+{
+  "mqtt": {
+    "broker": "192.168.1.160",
+    "port": 1883,
+    "username": "mqttuser",
+    "password": "mqttuser",
+    "topic": "key_remap/events",
+    "keepalive": 60,
+    "qos": 0,
+    "auto_reconnect": true,
+    "retain": false
+  },
+  "service": {
+    "web_port": 8080,
+    "bind_address": "0.0.0.0",
+    "debug_mode": false,
+    "log_level": "INFO",
+    "auto_start": true
+  },
+  "devices": {
+    "remapped_devices": {},
+    "ignored_keys": {}
+  },
+  "mappings": {},
+  "master_enabled": true
+}
