@@ -15,7 +15,8 @@ fi
 
 echo "[1/7] Installing system dependencies..."
 apt-get update
-apt-get install -y python3 python3-pip python3-venv bluez python3-dbus python3-gi gir1.2-glib-2.0
+apt-get install -y python3 python3-pip python3-venv bluez python3-dbus python3-gi gir1.2-glib-2.0 \
+    pkg-config libcairo2-dev libgirepository1.0-dev gcc python3-dev
 
 echo "[2/7] Creating installation directory..."
 mkdir -p /opt/mqtt-remapper
