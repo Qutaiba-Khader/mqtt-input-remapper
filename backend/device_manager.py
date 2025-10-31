@@ -38,6 +38,23 @@ class DeviceManager:
                     # Check if device has key events (EV_KEY)
                     if ecodes.EV_KEY in capabilities:
                         device_info = self._get_device_info(device)
+                        
+                        # Filter out composite sub-devices
+                        name_lower = device_info['name'].lower()
+                        skip_keywords = ['mouse', 'consumer control', 'system control',
+                                       'touchpad', 'pen', 'nub', 'keyboard']
+                        
+                        # Skip sub-devices of composite devices
+                        should_skip = False
+                        if 'composite' in name_lower or 'usb' in name_lower:
+                            for keyword in skip_keywords:
+                                if name_lower.strip().endswith(keyword):
+                                    should_skip = True
+                                    logger.debug(f"Skipping composite sub-device: {device_info['name']}")
+                                    break
+                        
+                        if should_skip:
+                            continue
                         devices[device.path] = device_info
                         logger.debug(f"Found device: {device_info['name']} at {device.path}")
                 except Exception as e:
