@@ -37,30 +37,50 @@ class BluetoothManager:
     def _init_dbus(self):
         """Initialize DBus connection"""
         try:
+            logger.info("Initializing DBus connection for Bluetooth...")
             self.bus = SystemBus()
             self._find_adapter()
+            if self.adapter:
+                logger.info("✓ Bluetooth DBus connection initialized successfully")
+            else:
+                logger.warning("⚠ No Bluetooth adapter found")
         except Exception as e:
-            logger.error(f"Error initializing DBus: {e}")
-            logger.warning("Bluetooth features will not be available")
+            logger.error(f"✗ Error initializing DBus: {e}")
+            logger.warning("Bluetooth features will not be available. Check if bluetooth service is running: sudo systemctl status bluetooth")
     
     def _find_adapter(self):
         """Find Bluetooth adapter"""
         try:
+            logger.debug("Searching for Bluetooth adapter...")
             # Get ObjectManager
             om = self.bus.get('org.bluez', '/')
             objects = om.GetManagedObjects()
-            
+
             # Find first adapter
             for path, interfaces in objects.items():
                 if 'org.bluez.Adapter1' in interfaces:
                     self.adapter_path = path
                     self.adapter = self.bus.get('org.bluez', path)
-                    logger.info(f"Found Bluetooth adapter: {path}")
+                    adapter_info = interfaces['org.bluez.Adapter1']
+                    logger.info(f"✓ Found Bluetooth adapter: {path}")
+                    logger.info(f"  - Name: {adapter_info.get('Name', 'Unknown')}")
+                    logger.info(f"  - Address: {adapter_info.get('Address', 'Unknown')}")
+                    logger.info(f"  - Powered: {adapter_info.get('Powered', False)}")
+
+                    # Try to power on adapter if it's off
+                    if not adapter_info.get('Powered', False):
+                        try:
+                            logger.info("Bluetooth adapter is powered off, attempting to power on...")
+                            self.adapter.Powered = True
+                            logger.info("✓ Bluetooth adapter powered on")
+                        except Exception as e:
+                            logger.warning(f"Could not power on adapter: {e}")
                     return
-            
-            logger.warning("No Bluetooth adapter found")
+
+            logger.warning("⚠ No Bluetooth adapter found. Check if Bluetooth hardware is available.")
         except Exception as e:
-            logger.error(f"Error finding Bluetooth adapter: {e}")
+            logger.error(f"✗ Error finding Bluetooth adapter: {e}")
+            logger.debug("Make sure bluetooth service is running: sudo systemctl start bluetooth")
     
     def is_available(self) -> bool:
         """Check if Bluetooth is available"""
@@ -69,21 +89,41 @@ class BluetoothManager:
     def start_scan(self, timeout: int = 10) -> bool:
         """Start scanning for Bluetooth devices"""
         if not self.is_available():
-            logger.warning("Bluetooth not available")
+            logger.warning("⚠ Bluetooth not available for scanning")
             return False
-        
+
         try:
-            logger.info("Starting Bluetooth scan...")
+            # Ensure adapter is powered on
+            if not self.adapter.Powered:
+                logger.info("Powering on Bluetooth adapter...")
+                self.adapter.Powered = True
+                time.sleep(1)  # Give it time to power on
+
+            logger.info(f"🔍 Starting Bluetooth scan for {timeout} seconds...")
+
+            # Stop any existing discovery first
+            try:
+                self.adapter.StopDiscovery()
+            except:
+                pass  # Ignore error if not discovering
+
             self.adapter.StartDiscovery()
             self.scanning = True
-            
+            logger.info("✓ Bluetooth discovery started - scanning...")
+
             # Scan for specified timeout
             time.sleep(timeout)
-            
+
             self.stop_scan()
+
+            # Get discovered devices
+            devices = self.get_devices(scan_first=False)
+            logger.info(f"✓ Bluetooth scan complete - found {len(devices)} device(s)")
+
             return True
         except Exception as e:
-            logger.error(f"Error starting Bluetooth scan: {e}")
+            logger.error(f"✗ Error starting Bluetooth scan: {e}")
+            self.scanning = False
             return False
     
     def stop_scan(self):
@@ -102,21 +142,23 @@ class BluetoothManager:
     def get_devices(self, scan_first: bool = False) -> List[Dict]:
         """Get list of discovered Bluetooth devices"""
         if not self.is_available():
+            logger.warning("Bluetooth not available - cannot get devices")
             return []
-        
+
         if scan_first:
             self.start_scan()
-        
+
         devices = []
-        
+
         try:
+            logger.debug("Retrieving Bluetooth devices from DBus...")
             om = self.bus.get('org.bluez', '/')
             objects = om.GetManagedObjects()
-            
+
             for path, interfaces in objects.items():
                 if 'org.bluez.Device1' in interfaces:
                     device = interfaces['org.bluez.Device1']
-                    
+
                     device_info = {
                         "path": path,
                         "address": device.get('Address', 'Unknown'),
@@ -129,7 +171,7 @@ class BluetoothManager:
                         "rssi": device.get('RSSI', 0),
                         "uuids": device.get('UUIDs', [])
                     }
-                    
+
                     # Try to get battery level if available
                     try:
                         battery = self.bus.get('org.bluez', path)
@@ -137,14 +179,19 @@ class BluetoothManager:
                             device_info['battery'] = battery.Percentage
                     except:
                         device_info['battery'] = None
-                    
+
                     devices.append(device_info)
-            
+                    logger.debug(f"  - {device_info['name']} ({device_info['address']}) - Paired: {device_info['paired']}, Connected: {device_info['connected']}")
+
             self.devices = {dev['address']: dev for dev in devices}
-            logger.debug(f"Found {len(devices)} Bluetooth devices")
+            logger.info(f"✓ Retrieved {len(devices)} Bluetooth device(s)")
+
+            if len(devices) == 0:
+                logger.info("ℹ No Bluetooth devices found. Try scanning first or check if devices are in range.")
+
         except Exception as e:
-            logger.error(f"Error getting Bluetooth devices: {e}")
-        
+            logger.error(f"✗ Error getting Bluetooth devices: {e}")
+
         return devices
     
     def get_device_by_address(self, address: str) -> Optional[Dict]:
