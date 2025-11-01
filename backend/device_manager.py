@@ -23,12 +23,14 @@ class DeviceManager:
     
     def scan_devices(self) -> Dict[str, dict]:
         """Scan for all available input devices"""
-        logger.info("Scanning for input devices...")
+        logger.info("🔍 Scanning for input devices...")
         devices = {}
-        
+
         try:
             # Get all input device paths
-            device_paths = [evdev.InputDevice(path) for path in evdev.list_devices()]
+            all_paths = evdev.list_devices()
+            logger.debug(f"Found {len(all_paths)} total input device(s) in /dev/input/")
+            device_paths = [evdev.InputDevice(path) for path in all_paths]
             
             for device in device_paths:
                 try:
@@ -38,32 +40,47 @@ class DeviceManager:
                     # Check if device has key events (EV_KEY)
                     if ecodes.EV_KEY in capabilities:
                         device_info = self._get_device_info(device)
-                        
-                        # Filter out composite sub-devices
+
+                        # Filter out obvious non-HID devices
                         name_lower = device_info['name'].lower()
-                        skip_keywords = ['mouse', 'consumer control', 'system control',
-                                       'touchpad', 'pen', 'nub', 'keyboard']
-                        
-                        # Skip sub-devices of composite devices
+
+                        # Skip pure mouse/touchpad devices (no keyboard keys)
+                        skip_patterns = ['touchpad', 'trackpoint', 'mouse pointer', 'pen stylus']
                         should_skip = False
-                        if 'composite' in name_lower or 'usb' in name_lower:
-                            for keyword in skip_keywords:
-                                if name_lower.strip().endswith(keyword):
-                                    should_skip = True
-                                    logger.debug(f"Skipping composite sub-device: {device_info['name']}")
-                                    break
-                        
-                        if should_skip:
-                            continue
-                        devices[device.path] = device_info
-                        logger.debug(f"Found device: {device_info['name']} at {device.path}")
+
+                        for pattern in skip_patterns:
+                            if pattern in name_lower:
+                                should_skip = True
+                                logger.debug(f"Skipping non-keyboard device: {device_info['name']}")
+                                break
+
+                        # Check if device has actual keyboard keys (not just BTN_*)
+                        if not should_skip:
+                            key_caps = capabilities.get(ecodes.EV_KEY, [])
+                            has_keyboard_keys = any(k >= ecodes.KEY_ESC and k <= ecodes.KEY_MICMUTE for k in key_caps)
+
+                            if not has_keyboard_keys and len(key_caps) < 10:
+                                logger.debug(f"Skipping device with too few keys: {device_info['name']}")
+                                should_skip = True
+
+                        if not should_skip:
+                            devices[device.path] = device_info
+                            logger.info(f"Found device: {device_info['name']} at {device.path}")
                 except Exception as e:
                     logger.error(f"Error reading device {device.path}: {e}")
         except Exception as e:
-            logger.error(f"Error scanning devices: {e}")
-        
+            logger.error(f"✗ Error scanning devices: {e}")
+
         self.devices = devices
-        logger.info(f"Found {len(devices)} input devices")
+        logger.info(f"✓ Scan complete - found {len(devices)} usable input device(s)")
+
+        if len(devices) == 0:
+            logger.warning("⚠ No input devices found. Check permissions (need root or input group)")
+        else:
+            logger.info("Available devices:")
+            for dev in devices.values():
+                logger.info(f"  - {dev['name']} ({dev['bustype']}) at {dev['path']}")
+
         return devices
     
     def _get_device_info(self, device: InputDevice) -> dict:

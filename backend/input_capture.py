@@ -34,34 +34,46 @@ class InputCapture:
         if not device_info:
             logger.error(f"Device {device_id} not found")
             return False
-        
+
         device_path = device_info['path']
-        
+
         # Check if already capturing
         if device_id in self.active_captures:
             logger.warning(f"Already capturing from device {device_id}")
             return True
-        
+
         # Get device configuration
         device_config = self.config.get_device_config(device_id)
         if not device_config:
             logger.error(f"No configuration found for device {device_id}")
             return False
-        
+
         # Check if device is enabled
         if not device_config.get('enabled', False):
             logger.info(f"Device {device_id} is disabled, not starting capture")
             return False
-        
+
+        # Check if device path exists
+        if not self.device_manager.is_device_available(device_path):
+            logger.error(f"Device path does not exist: {device_path}")
+            return False
+
         # Open device
         input_device = self.device_manager.open_device(device_path)
         if not input_device:
-            logger.error(f"Failed to open device {device_path}")
+            logger.error(f"Failed to open device {device_path}. Check permissions (need root or input group)")
             return False
-        
-        # Grab exclusive access
-        if not self.device_manager.grab_device(device_path):
-            logger.error(f"Failed to grab exclusive access to device {device_path}")
+
+        # Grab exclusive access (with better error handling)
+        try:
+            if not self.device_manager.grab_device(device_path):
+                logger.error(f"Failed to grab exclusive access to device {device_path}")
+                return False
+        except PermissionError as e:
+            logger.error(f"Permission denied when grabbing device {device_path}. Run as root or add user to input group: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Error grabbing device {device_path}: {e}")
             return False
         
         # Get mappings and ignored keys
@@ -119,32 +131,41 @@ class InputCapture:
         """Main capture loop for a device"""
         capture_info = self.active_captures.get(device_id)
         if not capture_info:
+            logger.error(f"No capture info found for device {device_id}")
             return
-        
+
         input_device = capture_info['input_device']
         device_name = capture_info['device_name']
-        
-        logger.info(f"Capture loop started for {device_name}")
-        
+
+        logger.info(f"✓ Capture loop STARTED for {device_name} - Waiting for key events...")
+
         try:
+            event_count = 0
             for event in input_device.read_loop():
                 # Check if still enabled
-                if not capture_info['enabled']:
+                if not capture_info.get('enabled', False):
+                    logger.info(f"Device {device_name} disabled, stopping capture loop")
                     break
-                
+
                 # Check if master is enabled
                 if not self.config.is_master_enabled():
                     continue
-                
+
                 # Only process key events
                 if event.type == ecodes.EV_KEY:
                     # Only process key down events (value 1)
                     if event.value == 1:
+                        event_count += 1
+                        logger.debug(f"Key event #{event_count} received from {device_name}")
                         self._process_key_event(capture_info, event)
+        except OSError as e:
+            logger.error(f"Device {device_name} disconnected or inaccessible: {e}")
+        except PermissionError as e:
+            logger.error(f"Permission error reading from {device_name}: {e}")
         except Exception as e:
-            logger.error(f"Error in capture loop for {device_name}: {e}")
+            logger.error(f"Unexpected error in capture loop for {device_name}: {e}", exc_info=True)
         finally:
-            logger.info(f"Capture loop ended for {device_name}")
+            logger.info(f"✗ Capture loop ENDED for {device_name}")
     
     def _process_key_event(self, capture_info: dict, event):
         """Process a key event"""
@@ -152,37 +173,39 @@ class InputCapture:
         device_name = capture_info['device_name']
         mappings = capture_info['mappings']
         ignored_keys = capture_info['ignored_keys']
-        
+
         # Get key name
         try:
             key_name = ecodes.KEY[event.code]
         except KeyError:
             key_name = f"KEY_{event.code}"
-        
-        logger.debug(f"Key event from {device_name}: {key_name}")
-        
+
+        logger.info(f"🔑 Key pressed: {key_name} on device {device_name}")
+
         # Check if key is in ignored list
         if key_name in ignored_keys:
-            logger.debug(f"Key {key_name} is ignored")
+            logger.info(f"⊘ Key {key_name} is in ignored list - skipping")
             return
-        
+
         # Check if key has a mapping
         if key_name in mappings:
             remapped_text = mappings[key_name]
-            
+
             # Only send if remapped text is not empty
             if remapped_text and remapped_text.strip():
-                logger.info(f"Remapped key {key_name} -> '{remapped_text}'")
-                
+                logger.info(f"📤 Remapping: {key_name} → '{remapped_text}'")
+
                 # Publish to MQTT
                 success = self.mqtt_client.publish_key_event(device_name, remapped_text)
-                
-                if not success:
-                    logger.warning(f"Failed to publish key event for {key_name}")
+
+                if success:
+                    logger.info(f"✓ Successfully published to MQTT")
+                else:
+                    logger.warning(f"✗ Failed to publish key event for {key_name}")
             else:
-                logger.debug(f"Key {key_name} has empty mapping, ignoring")
+                logger.info(f"⊘ Key {key_name} has empty mapping - ignoring")
         else:
-            logger.debug(f"Key {key_name} has no mapping")
+            logger.info(f"⊘ Key {key_name} has no mapping - configure it in the Mappings page")
     
     def update_device_mappings(self, device_id: str):
         """Update mappings for a device that's being captured"""
